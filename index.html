@@ -283,10 +283,12 @@ const lazyObserver = ("IntersectionObserver" in window)
     }, { rootMargin: "300px" })
   : null;
 
-function loadImageWhenVisible(imgEl, placeholderEl, rec) {
+/* Not: gizli (display:none) bir öğe ekrana "girmiş" sayılmaz, bu yüzden
+   görselin kendisini değil, görünen kutusunu (thumbEl) izliyoruz. */
+function loadImageWhenVisible(thumbEl, imgEl, placeholderEl, rec) {
   if (!lazyObserver) { loadImage(imgEl, placeholderEl, rec); return; }
-  imgEl._loadNow = () => loadImage(imgEl, placeholderEl, rec);
-  lazyObserver.observe(imgEl);
+  thumbEl._loadNow = () => loadImage(imgEl, placeholderEl, rec);
+  lazyObserver.observe(thumbEl);
 }
 
 function render() {
@@ -321,7 +323,7 @@ function render() {
     placeholder.textContent = "GÖRSEL YOK";
     thumb.appendChild(img);
     thumb.appendChild(placeholder);
-    loadImageWhenVisible(img, placeholder, rec);
+    loadImageWhenVisible(thumb, img, placeholder, rec);
 
     const body = document.createElement("div");
     body.className = "card-body";
