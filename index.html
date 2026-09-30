@@ -194,8 +194,8 @@ const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTvJi6dyQ
 /* Görsellerin bulunduğu klasör (bu dosyayla aynı depoda) */
 const IMAGE_FOLDER = "public/";
 
-/* Bir dosya adı için sırayla denenecek uzantılar */
-const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif"];
+/* Tabloda "Uzantı" sütunu boş bırakılırsa kullanılacak uzantı */
+const DEFAULT_EXTENSION = "jpg";
 
 /* ============================================================ */
 
@@ -235,6 +235,7 @@ function recordsFromCsv(text) {
     ad: headers.indexOf("Dosya Adı"),
     tarih: headers.indexOf("Tarih"),
     dil: headers.indexOf("Dil"),
+    uzanti: headers.findIndex(h => h.toLowerCase().replace(/ı/g, "i").startsWith("uzant")),
   };
   return rows.slice(1).map(r => ({
     kod: (r[idx.kod] || "").trim(),
@@ -242,29 +243,57 @@ function recordsFromCsv(text) {
     ad: (r[idx.ad] || "").trim(),
     tarih: (r[idx.tarih] || "").trim(),
     dil: (r[idx.dil] || "").trim(),
+    uzanti: ((idx.uzanti >= 0 ? r[idx.uzanti] : "") || "").trim().replace(/^\./, "").toLowerCase() || DEFAULT_EXTENSION,
   })).filter(rec => rec.kod);
 }
 
-function setImageWithFallback(imgEl, placeholderEl, baseName) {
-  let extIdx = 0;
-  function tryNext() {
-    if (extIdx >= IMAGE_EXTENSIONS.length) {
-      imgEl.style.display = "none";
-      placeholderEl.style.display = "flex";
-      return;
-    }
-    const ext = IMAGE_EXTENSIONS[extIdx++];
-    imgEl.src = IMAGE_FOLDER + encodeURIComponent(baseName) + "." + ext;
+/* Bulunamayan görsellerin adresleri: aynı oturumda tekrar istenmez */
+const missingImages = new Set();
+
+function imageUrl(rec) {
+  return IMAGE_FOLDER + encodeURIComponent(rec.ad) + "." + rec.uzanti;
+}
+
+/* Tek istekle görseli yükler; bulunamazsa "GÖRSEL YOK" gösterir */
+function loadImage(imgEl, placeholderEl, rec) {
+  const url = imageUrl(rec);
+  if (missingImages.has(url)) {
+    imgEl.style.display = "none";
+    placeholderEl.style.display = "flex";
+    return;
   }
-  imgEl.onerror = tryNext;
+  imgEl.onerror = () => {
+    missingImages.add(url);
+    imgEl.style.display = "none";
+    placeholderEl.style.display = "flex";
+  };
   imgEl.onload = () => { placeholderEl.style.display = "none"; imgEl.style.display = "block"; };
-  tryNext();
+  imgEl.src = url;
+}
+
+/* Kart görselleri sadece ekrana yaklaşınca istenir */
+const lazyObserver = ("IntersectionObserver" in window)
+  ? new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          lazyObserver.unobserve(entry.target);
+          if (entry.target._loadNow) entry.target._loadNow();
+        }
+      });
+    }, { rootMargin: "300px" })
+  : null;
+
+function loadImageWhenVisible(imgEl, placeholderEl, rec) {
+  if (!lazyObserver) { loadImage(imgEl, placeholderEl, rec); return; }
+  imgEl._loadNow = () => loadImage(imgEl, placeholderEl, rec);
+  lazyObserver.observe(imgEl);
 }
 
 function render() {
   const grid = document.getElementById("grid");
   const emptyState = document.getElementById("emptyState");
   const metaBar = document.getElementById("metaBar");
+  if (lazyObserver) lazyObserver.disconnect();
   grid.innerHTML = "";
 
   const term = searchTerm.trim().toLowerCase();
@@ -292,7 +321,7 @@ function render() {
     placeholder.textContent = "GÖRSEL YOK";
     thumb.appendChild(img);
     thumb.appendChild(placeholder);
-    setImageWithFallback(img, placeholder, rec.ad);
+    loadImageWhenVisible(img, placeholder, rec);
 
     const body = document.createElement("div");
     body.className = "card-body";
@@ -326,7 +355,7 @@ function openModal(rec) {
   placeholder.textContent = "GÖRSEL YOK";
   modalThumb.appendChild(img);
   modalThumb.appendChild(placeholder);
-  setImageWithFallback(img, placeholder, rec.ad);
+  loadImage(img, placeholder, rec);
 
   modalBody.innerHTML = `
     <h2>${rec.ad}</h2>
